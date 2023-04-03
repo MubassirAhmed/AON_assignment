@@ -4,52 +4,57 @@ import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+import requests
 
+
+from pdfminer.pdfparser import PDFParser
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdfpage import PDFPage, PDFTextExtractionNotAllowed
+from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
+from pdfminer.pdfdevice import PDFDevice
+from pdfminer.layout import LAParams, LTTextBoxHorizontal,LTTextContainer,LTChar
+from pdfminer.converter import PDFPageAggregator
+
+from PyPDF2 import PdfReader
+
+
+from pathlib import Path
+from typing import Iterable, Any
+
+from pdfminer.high_level import extract_pages
 
 def get_ProductMonograph_download_URL(DIN,product_name):
 	options = Options()
-	options.headless = True
+	options.add_argument("--headless=new")
 	options.add_argument("--window-size=1920,1200")
 	DRIVER_PATH = '.chromedriver'
-	driver = webdriver.Chrome(options=options, executable_path=DRIVER_PATH)
+	driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()),options=options)
 
 	#Page 1, entering DIN and product name
 	driver.get("https://health-products.canada.ca/dpd-bdpp/")
-	#time.sleep(2)
+	#time.sleep(1)
 	DIN_field = driver.find_element(By.ID, "din").send_keys(DIN)
-	#time.sleep(2)
+	#time.sleep(1)
 	product_field = driver.find_element(By.ID, "product").send_keys(product_name)
-	#time.sleep(2)
+	#time.sleep(1)
 	search = driver.find_element("xpath", "//input[@value='Search']").click()
-	#time.sleep(5)
+	#time.sleep(1)
 	#Page 2, choosing the first result
 	try:
 		Click_ProductInfo_HyperLink = driver.find_element("link text", DIN).click()
-		#time.sleep(5)
+		#time.sleep(1)
 	#Page 3, getting the pdf link
 	except:
 		pass
 
 	finally:
 		Product_Monograph_URL = driver.find_element(By.CLASS_NAME, 'glyphicon-paperclip').find_element(By.TAG_NAME, 'a').get_attribute('href')
-		#time.sleep(5)
+		#time.sleep(1)
 		driver.quit()
 	return Product_Monograph_URL
 
-
-def dummy(DIN, Product_Name):
-	return DIN + Product_Name
-
-
-def get_pdf_urls(df):
-	pdf_urls_list =[]
-	for row in range(df.shape[0]):
-		DIN = df.loc[row,'DIN']
-		Product_Name = df.loc[row,'Brand Name']
-		pdf_urls_list.append(get_ProductMonograph_download_URL(DIN, Product_Name))
-		#pdf_urls_list.append(dummy(DIN, Product_Name))
-	return pdf_urls_list
-		
 
 def input(PATH_TO_XLSX):
 	df = pd.read_excel(PATH_TO_XLSX)
@@ -65,6 +70,148 @@ def input(PATH_TO_XLSX):
 	return df
 
 
+def get_pdf_urls(df):
+	for row in range(df.shape[0]):
+		try:
+			df.loc[row, r'PDF Link'] = get_ProductMonograph_download_URL(
+											DIN = df.loc[row,'DIN'],
+											product_name = df.loc[row,'Brand Name']
+											)
+			print('SUCCESS: collected pdf URL for ' + df.loc[row,'DIN'] + ' and record number ' + str(row))
+		except:
+			print('FAIL: could not collect pdf URL for ' + df.loc[row,'DIN'] + ' and record number ' + str(row))
+
+	# Create txt file with links
+	with open('pdf_links.csv', 'w') as f:
+		f.write('DIN,Brand Name,PDF Link\n')
+		for i in range(df.shape[0]):
+			f.write(f"{df.loc[i,'DIN']},{df.loc[i,'Brand Name']},{df.loc[i,'PDF Link']}\n")
+
+
+
+def download_pdfs():
+	df = pd.read_csv('pdf_links.csv', dtype = str)
+	for i in range(df.shape[0]):
+		try:
+			download(url = df.loc[i,'PDF Link'], file_name = df.loc[i,'DIN'])
+			print('SUCCESS: downloaded product monograph for ' + df.loc[i,'DIN'] + ' and record number ' + str(i))
+		except:
+			print('FAIL: couldn\'t download product monograph for ' + df.loc[i,'DIN'] + ' and record number ' + str(i))
+
+
+def download(url, file_name):
+	""" PDF will be dowloaded into same dir as main.py
+	"""
+	headers = {"User-Agent": "Chrome/51.0.2704.103",}
+    # Send GET request
+	response = requests.get(url, headers=headers)
+    # Save the PDF
+	try:
+	    f = open(file_name + '.pdf', "wb")
+	    f.write(response.content)
+	    f.close()
+	except:
+	    pass
+	    #print(response.status_code)
+
+
+
+
+
+def get_drug_class_pdfminer():
+	# PDF Miner
+	document = open('02496844.pdf', 'rb')
+	#Create resource manager
+	rsrcmgr = PDFResourceManager()
+	# Set parameters for analysis.
+	laparams = LAParams()
+	# Create a PDF page aggregator object.
+	device = PDFPageAggregator(rsrcmgr, laparams=laparams)
+	interpreter = PDFPageInterpreter(rsrcmgr, device)
+	#for page in PDFPage.get_pages(document):
+	page = list(PDFPage.get_pages(document))[0]
+	interpreter.process_page(page)
+	# receive the LTPage object for the page.
+	layout = device.get_result()
+	for element in layout:
+		if isinstance(element, LTTextBox):
+			print(element.get_text())
+
+
+
+
+
+def get_drug_class_pdfminer_six(pdf_path):
+	""" The rule based logic implemented:
+		1. all of address is in a single text box
+		2. no element before address element has more than one item in their textbox
+		3. therefore the last element before the textbox with multi. items is the drug class element
+		4. drug class element is always before the address element
+	"""
+	page = list(extract_pages(pdf_path))[0]
+	drug_class = ''
+	for LTTextBox in page:
+		count = 0
+		for LTTextLine in LTTextBox:
+			count += 1
+		if count > 1 :
+			break
+		else:
+			drug_class = LTTextLine.get_text()
+	print(drug_class)
+
+
+
+
+def get_drug_class_PyPDF2():
+	df = pd.read_csv('pdf_links.csv', dtype = str)
+	for i in range(df.shape[0]):
+		reader = PdfReader(df.loc[i,'DIN'] + ".pdf")
+		page = reader.pages[0]
+		print(page.extract_text())
+
+
+
+
+
+def show_ltitem_hierarchy(o: Any, depth=0):
+		"""Show location and text of LTItem and all its descendants"""
+		if depth == 0:
+		    print('element                        fontname             text')
+		    print('------------------------------ -------------------- -----')
+		print(
+		    f'{get_indented_name(o, depth):<30.30s} '
+		    f'{get_optional_fontinfo(o):<20.20s} '
+		    f'{get_optional_text(o)}'
+		)
+		if isinstance(o, Iterable):
+		    for i in o:
+		        show_ltitem_hierarchy(i, depth=depth + 1)
+
+def get_indented_name(o: Any, depth: int) -> str:
+    """Indented name of class"""
+    return '  ' * depth + o.__class__.__name__
+
+def get_optional_fontinfo(o: Any) -> str:
+    """Font info of LTChar if available, otherwise empty string"""
+    if hasattr(o, 'fontname') and hasattr(o, 'size'):
+        return f'{o.fontname} {round(o.size)}pt'
+    return ''
+
+def get_optional_text(o: Any) -> str:
+    """Text of LTItem if available, otherwise empty string"""
+    if hasattr(o, 'get_text'):
+        return o.get_text().strip()
+    return ''
+
+def show_tree(pdf_path):
+	path = Path(pdf_path).expanduser()
+	pages = list(extract_pages(path))[0]
+	show_ltitem_hierarchy(pages)
+
+
+
+
 def main():
 	pass
 # 	createListOfDINsAutomaticallyFromPDF()
@@ -78,7 +225,26 @@ def main():
 # 	returnXLSofDINsProductNameAndDrugClass()
 
 if __name__ == '__main__':
-	#df = input(r'ListOfDINs copy.xlsx')
-	#pdf_urls_list = get_pdf_urls(df)
+	#get_pdf_urls(input(r'ListOfDINs copy.xlsx'))
+	#download_pdfs()
+	#get_drug_class_PyPDF2()
+	#get_drug_class_pdfminer()
+	#show_tree('02496844.pdf')
+	get_drug_class_pdfminer_six('02496844.pdf')
+
+	
+
+		# with open('pdf_links.txt') as f:
+		# 	urls = [link.rstrip() for link in f]
+		# 	for url in urls:
+
+
+		# for i in range(df.shape[0]):
+		# 	try:
+		# 		url = df.loc[i, 'PDF link']
+		# 		filename = df.loc[i, 'DIN']
+		# 		download_pdf(url, filename)
+		# 	except:
+		# 		print('unable to download ' + df.loc[i,'DIN'])
 
 
