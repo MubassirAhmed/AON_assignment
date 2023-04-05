@@ -25,6 +25,18 @@ from typing import Iterable, Any
 
 from pdfminer.high_level import extract_pages
 
+import pdftotext
+
+import fitz
+
+import statistics
+
+import spacy
+
+from nltk.tokenize import sent_tokenize
+
+import re
+
 def get_ProductMonograph_download_URL(DIN,product_name):
 	options = Options()
 	options.add_argument("--headless=new")
@@ -118,9 +130,9 @@ def download(url, file_name):
 
 
 
-def get_drug_class_pdfminer():
+def get_drug_class_pdfminer(pdf_path):
 	# PDF Miner
-	document = open('02496844.pdf', 'rb')
+	document = open(pdf_path, 'rb')
 	#Create resource manager
 	rsrcmgr = PDFResourceManager()
 	# Set parameters for analysis.
@@ -133,10 +145,18 @@ def get_drug_class_pdfminer():
 	interpreter.process_page(page)
 	# receive the LTPage object for the page.
 	layout = device.get_result()
-	for element in layout:
-		if isinstance(element, LTTextBox):
-			print(element.get_text())
-
+	drug_class = ''
+	print(layout)
+	# for LTTextBox in layout:
+	# 	print(LTTextBox.get_text())
+	# # 	count = 0
+	# 	for LTTextLine in LTTextBox:
+	# 		count += 1
+	# 	if count > 1 :
+	# 		break
+	# 	else:
+	# 		drug_class = LTTextLine.get_text()
+	# print(drug_class)
 
 
 
@@ -163,6 +183,8 @@ def get_drug_class_pdfminer_six(pdf_path):
 
 
 
+
+
 def get_drug_class_PyPDF2():
 	df = pd.read_csv('pdf_links.csv', dtype = str)
 	for i in range(df.shape[0]):
@@ -170,6 +192,17 @@ def get_drug_class_PyPDF2():
 		page = reader.pages[0]
 		print(page.extract_text())
 
+
+
+
+
+
+def get_drug_class_pdftotext(path2):
+	with open(path2, "rb") as f:
+		pdf = pdftotext.PDF(f)
+	print(pdf[0])
+	print(r'%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
+	print(r'%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
 
 
 
@@ -224,13 +257,82 @@ def main():
 # 	openPdfAndGrabDrugClassForEachPairOfDin()
 # 	returnXLSofDINsProductNameAndDrugClass()
 
+
+
+def get_drug_class_PyMuPDF(file_path):
+	with fitz.open(file_path) as pdf:
+		first_page = list(pdf)[0]
+		median_list = []
+		nlp = spacy.load("en_core_web_sm")
+		curated_blocks = []
+		all_blocks = first_page.get_text('blocks')
+
+		# Curating text boxes that are centre justified
+		for block in all_blocks:
+			# initialize
+			x1 = round(block[0])
+			x2 = round(block[2])
+			text = block[4]
+			text_length = len(block[4])
+			index_block = block[5]
+			midpoint = round( ( (x2 - x1) / 2) + x1 )
+
+			# Select Center Justified textboxes + drop if 'page' in textbox
+			if (midpoint > 275 and midpoint < 325 and text_length  > 3 and 'page' not in text.lower() ):
+				curated_blocks.append(block)
+				#print(str(index_block) + " - " + str(x1) + ", " + str(x2) + ", " + str(midpoint) + ", " + repr(text))
+
+		# unpacking nested blocks
+		temp = []
+		for i in range(len(curated_blocks)):
+			unpacked_strings = re.sub(r'\n+', '\n', curated_blocks[i][4]).strip().splitlines()
+			while(" " in unpacked_strings):
+				unpacked_strings.remove(" ")
+			if unpacked_strings: # Because sometimes it can be an empty list (cuz one of the textblocks was just ' \n ')
+				for string in unpacked_strings:
+					temp.append([string][0])
+		curated_blocks = temp
+
+		# Edge cases: Ignore if last center justified bounding box is a sentence + ignore http links
+		for i in range(len(curated_blocks)):
+			textblock = curated_blocks[-(i + 1)]
+			doc = nlp(textblock)
+
+			pos_list =[token.pos_ for token in doc]
+			if 'AUX' in pos_list:
+				continue
+	
+			token_text = [token.text for token in doc]
+			check_for_http = [1 for token in token_text if 'http' in token]
+			if 1 in check_for_http:
+				continue
+			
+			print(textblock)
+			break
+
+		# Notes:
+		# (x0, y0, x1, y1, 'lines of the block', block_no, block_type)
+		# x0: 50 is almost border left, and x1: 527 is almost border right
+
+
+
+
+
 if __name__ == '__main__':
 	#get_pdf_urls(input(r'ListOfDINs copy.xlsx'))
 	#download_pdfs()
 	#get_drug_class_PyPDF2()
 	#get_drug_class_pdfminer()
-	#show_tree('02496844.pdf')
-	get_drug_class_pdfminer_six('02496844.pdf')
+	#get_drug_class_pdftotext('02496844.pdf')
+	get_drug_class_PyMuPDF('02524589.pdf')
+	#show_tree('02510839.pdf')
+	# df = pd.read_csv('pdf_links.csv', dtype = str)
+	# for i in range(df.shape[0]):
+	# 	print(df.loc[i, 'DIN'])
+	# 	get_drug_class_PyMuPDF( df.loc[i, 'DIN'] + '.pdf' )
+
+	
+
 
 	
 
