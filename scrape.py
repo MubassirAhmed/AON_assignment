@@ -142,7 +142,7 @@ def get_drug_class_PyMuPDF(file_path):
             # Check lines 6 to 9 because this is where the drug class is usually found
             if block_index >= 6 and block_index <= 9:
                 if x1 >= 100 and x1 <= 300:   # textblock is left-aligned if x1 coordinate is in the 100s or 200s
-                    print('Extracted: ' + all_blocks[i-1][4].strip())
+                    print('Collected: ' + all_blocks[i-1][4].strip())
                     result = all_blocks[i-1][4].strip()   # Collect the textblock that appears right before the first left-aligned textblock
                     break
         os.remove(file_path)
@@ -172,4 +172,5 @@ if __name__ == '__main__':
         OCRimage( df.loc[i, 'DIN'] + '.jpg' )
         df.loc[i , 'Drug Class'] = get_drug_class_PyMuPDF( 'OCR-' + df.loc[i, 'DIN'] + '.pdf' )
         print('\n')
-    df.to_excel(output_path)  # Create excel sheet with extracted drug class
+    print('Complete!')
+    df.to_csv(output_path)  # Create csv with extracted drug class
