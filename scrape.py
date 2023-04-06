@@ -37,6 +37,11 @@ from nltk.tokenize import sent_tokenize
 
 import re
 
+from pdf2image import convert_from_path
+from PIL import Image
+
+import pytesseract
+
 def get_ProductMonograph_download_URL(DIN,product_name):
 	options = Options()
 	options.add_argument("--headless=new")
@@ -259,7 +264,7 @@ def main():
 
 
 
-def get_drug_class_PyMuPDF(file_path):
+def _get_drug_class_PyMuPDF(file_path):
 	with fitz.open(file_path) as pdf:
 		first_page = list(pdf)[0]
 		median_list = []
@@ -276,11 +281,12 @@ def get_drug_class_PyMuPDF(file_path):
 			text_length = len(block[4])
 			index_block = block[5]
 			midpoint = round( ( (x2 - x1) / 2) + x1 )
-
+			print(str(index_block) + " - " + str(x1) + ", " + str(x2) + ", " + str(midpoint) + ", " + repr(text))
+   
 			# Select Center Justified textboxes + drop if 'page' in textbox
-			if (midpoint > 275 and midpoint < 325 and text_length  > 3 and 'page' not in text.lower() ):
+			if (midpoint > 860 and midpoint < 895 and text_length  > 3 and 'page' not in text.lower() ):
 				curated_blocks.append(block)
-				#print(str(index_block) + " - " + str(x1) + ", " + str(x2) + ", " + str(midpoint) + ", " + repr(text))
+				# print(str(index_block) + " - " + str(x1) + ", " + str(x2) + ", " + str(midpoint) + ", " + repr(text))
 
 		# unpacking nested blocks
 		temp = []
@@ -314,22 +320,49 @@ def get_drug_class_PyMuPDF(file_path):
 		# (x0, y0, x1, y1, 'lines of the block', block_no, block_type)
 		# x0: 50 is almost border left, and x1: 527 is almost border right
 
+def pdftoimage(file_path):
+	convert_from_path(file_path)[0].save(file_path.replace('.pdf','')+'.jpg', 'JPEG')
 
 
 
+def imagetopdf(file_path):
+    pdf = pytesseract.image_to_pdf_or_hocr(file_path, extension='pdf')
+    with open('OCR-' + file_path.replace('.jpg','') + '.pdf' , 'w+b') as f:
+        f.write(pdf) # pdf type is bytes by default
+     
+def get_drug_class_PyMuPDF(file_path):
+	with fitz.open(file_path) as pdf:
+		first_page = list(pdf)[0]
+		all_blocks = first_page.get_text('blocks')
 
+		# Identify the first left-aligned textblock and printing the textbox immediately before 
+		for i, block in enumerate(all_blocks):
+			# initialize
+			x1 = round(block[0])
+			block_index = block[5]
+
+			# 6 - 9 because this is where the drug class is usually found
+			if block_index >= 6 and block_index <= 9:
+				if x1 >= 100 and x1 <= 300:
+					print(all_blocks[i-1][4].strip())
+					break
+   
+     
 if __name__ == '__main__':
 	#get_pdf_urls(input(r'ListOfDINs copy.xlsx'))
 	#download_pdfs()
 	#get_drug_class_PyPDF2()
 	#get_drug_class_pdfminer()
 	#get_drug_class_pdftotext('02496844.pdf')
-	get_drug_class_PyMuPDF('02524589.pdf')
+	#get_drug_class_PyMuPDF('OCR-02510839.pdf')
 	#show_tree('02510839.pdf')
-	# df = pd.read_csv('pdf_links.csv', dtype = str)
-	# for i in range(df.shape[0]):
-	# 	print(df.loc[i, 'DIN'])
-	# 	get_drug_class_PyMuPDF( df.loc[i, 'DIN'] + '.pdf' )
+	df = pd.read_csv('pdf_links.csv', dtype = str)
+	for i in range(df.shape[0]):
+		print(df.loc[i, 'DIN'])
+		# pdftoimage( df.loc[i, 'DIN'] + '.pdf' )
+		# imagetopdf( df.loc[i, 'DIN'] + '.jpg' )
+		get_drug_class_PyMuPDF( 'OCR-' + df.loc[i, 'DIN'] + '.pdf' )
+	#imagetopdf('02524589.jpg')
 
 	
 
