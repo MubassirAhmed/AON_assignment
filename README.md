@@ -27,5 +27,10 @@ sudo apt install tesseract-ocr
 
 4. Execute the script
 ```
-python main.py
+python main.py  # by default it takes the ListOfDINs.xlsx from root dir as input. 
+```
+
+### The Input file can be changed by passing the filepath as an argument:
+```
+python main.py path_to_file.xlsx  #  The input should be an excel sheet and have DIN in first column and Product Name in second column
 ```
