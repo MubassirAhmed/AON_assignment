@@ -7,7 +7,9 @@ from webdriver_manager.chrome import ChromeDriverManager
 import requests
 import fitz
 from pdf2image import convert_from_path
+from pdf2jpg import pdf2jpg
 import pytesseract
+import os
 
 def get_ProductMonograph_download_URL(DIN,product_name):
 	options = Options()
@@ -46,7 +48,7 @@ def input(PATH_TO_XLSX):
 	df = df.drop(columns = 'Drug Class')
 	df = df.dropna()
 	for col in df.columns:  #Clean up whitespace in rows
-	    df[col] = df[col].astype(str).str.strip()
+		df[col] = df[col].astype(str).str.strip()
 	#fixing non-zero prefix in excel
 	for i in range(df.shape[0]):
 		if len(df.loc[i,'DIN']) < 8:
@@ -87,16 +89,16 @@ def download(url, file_name):
 	""" PDF will be dowloaded into same dir as main.py
 	"""
 	headers = {"User-Agent": "Chrome/51.0.2704.103",}
-    # Send GET request
+	# Send GET request
 	response = requests.get(url, headers=headers)
-    # Save the PDF
+	# Save the PDF
 	try:
-	    f = open(file_name + '.pdf', "wb")
-	    f.write(response.content)
-	    f.close()
+		f = open(file_name + '.pdf', "wb")
+		f.write(response.content)
+		f.close()
 	except:
-	    pass
-	    #print(response.status_code)
+		pass
+		#print(response.status_code)
 
 
 def main():
@@ -113,36 +115,44 @@ def main():
 
 
 def pdftoimage(file_path):
-	convert_from_path(file_path)[0].save(file_path.replace('.pdf','')+'.jpg', 'JPEG')
+	doc = fitz.open(file_path)
+	doc.select([0])
+	doc.save('first_page-'+file_path)
+	#convert_from_path(pdf_path = 'first_page-'+file_path, output_folder = '.', thread_count = 4, fmt = 'jpg', output_file = file_path )
+	convert_from_path('first_page-'+file_path)[0].save(file_path.replace('.pdf','')+'.jpg', 'JPEG')
+	os.remove('first_page-' + file_path)
 
-
-
-def imagetopdf(file_path):
-    pdf = pytesseract.image_to_pdf_or_hocr(file_path, extension='pdf')
-    with open('OCR-' + file_path.replace('.jpg','') + '.pdf' , 'w+b') as f:
-        f.write(pdf) # pdf type is bytes by default
-        
-     
+def imagetoOCR(file_path):
+	pdf = pytesseract.image_to_pdf_or_hocr(file_path, extension='pdf')
+	with open('OCR-' + file_path.replace('.jpg','') + '.pdf' , 'w+b') as f:
+		f.write(pdf) # pdf type is bytes by default
+	os.remove(file_path)   
+	 
 def get_drug_class_PyMuPDF(file_path):
 	with fitz.open(file_path) as pdf:
 		first_page = list(pdf)[0]
 		all_blocks = first_page.get_text('blocks')
-
+		result = ''
 		# Identify the first left-aligned textblock and printing the textbox immediately before 
 		for i, block in enumerate(all_blocks):
 			# initialize
 			x1 = round(block[0])
 			block_index = block[5]
-
+			#print(str(x1) + ' - ' + block[4].strip())
+   
 			# 6 - 9 because this is where the drug class is usually found
 			if block_index >= 6 and block_index <= 9:
 				if x1 >= 100 and x1 <= 300:
 					print(all_blocks[i-1][4].strip())
-					return all_blocks[i-1][4].strip()
+					result = all_blocks[i-1][4].strip()
+					break
+		os.remove(file_path)
+		return result
+	
    		# Notes:
 		# (x0, y0, x1, y1, 'lines of the block', block_no, block_type)
-     
-     
+	 
+	 
 if __name__ == '__main__':
 	#get_pdf_urls(input(r'ListOfDINs copy.xlsx'))
 	#download_pdfs()
@@ -151,8 +161,8 @@ if __name__ == '__main__':
 	df = df.drop(columns='PDF Link')
 	for i in range(df.shape[0]):
 		print(df.loc[i, 'DIN'])
-		#pdftoimage( df.loc[i, 'DIN'] + '.pdf' )
-		#imagetopdf( df.loc[i, 'DIN'] + '.jpg' )
+		pdftoimage( df.loc[i, 'DIN'] + '.pdf' )
+		imagetoOCR( df.loc[i, 'DIN'] + '.jpg' )
 		df.loc[i , 'Drug Class'] = get_drug_class_PyMuPDF( 'OCR-' + df.loc[i, 'DIN'] + '.pdf' )
 		print('\n')
 	df.to_excel(r'List of DINS with Drug Class.xlsx')
